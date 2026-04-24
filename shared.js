@@ -12,11 +12,18 @@ export function canonicalHostFromUrl(url) {
   }
 }
 
-/** @typedef {{ host: string, dailyMinutes: number }} ManagedSite */
+/** @typedef {{ host: string, weekdayMinutes: number, weekendMinutes: number }} ManagedSite */
+
+export const DEFAULT_SITE_WEEKDAY_MINUTES = 60;
+export const DEFAULT_SITE_WEEKEND_MINUTES = 120;
+
+/** @param {unknown} n */
+function clampSiteBudgetMinutes(n) {
+  return Math.min(480, Math.max(1, Math.floor(Number(n))));
+}
 
 /**
  * Global cap: 60 min Mon–Fri, 120 min Sat–Sun (local time).
- * Also used as the default per-site daily budget when none is set.
  * @param {Date} [now]
  */
 export function effectiveGlobalDailyMax(now = new Date()) {
@@ -25,26 +32,65 @@ export function effectiveGlobalDailyMax(now = new Date()) {
   return isWeekend ? 120 : 60;
 }
 
+/**
+ * Per-site budget for the given calendar day (local), using weekday vs weekend limits.
+ * @param {{ weekdayMinutes: number, weekendMinutes: number }} norm
+ * @param {Date} [now]
+ */
+export function siteDailyBudgetMinutes(norm, now = new Date()) {
+  const d = now.getDay();
+  const isWeekend = d === 0 || d === 6;
+  return isWeekend ? norm.weekendMinutes : norm.weekdayMinutes;
+}
+
 /** @param {unknown} row */
 export function normalizeSiteRow(row) {
-  const defaultDaily = effectiveGlobalDailyMax();
   if (typeof row === "string") {
     const host = canonicalHost(row);
-    return host ? { host, dailyMinutes: defaultDaily } : null;
+    return host
+      ? { host, weekdayMinutes: DEFAULT_SITE_WEEKDAY_MINUTES, weekendMinutes: DEFAULT_SITE_WEEKEND_MINUTES }
+      : null;
   }
   if (!row || typeof row !== "object") return null;
   const host = canonicalHost(String(/** @type {{ host?: string }} */ (row).host || ""));
   if (!host) return null;
-  if ("dailyMinutes" in row && Number.isFinite(Number(row.dailyMinutes))) {
-    const d = Math.min(480, Math.max(1, Math.floor(Number(row.dailyMinutes))));
-    return { host, dailyMinutes: d };
+  const wk = "weekdayMinutes" in row && Number.isFinite(Number(/** @type {{ weekdayMinutes?: unknown }} */ (row).weekdayMinutes));
+  const we = "weekendMinutes" in row && Number.isFinite(Number(/** @type {{ weekendMinutes?: unknown }} */ (row).weekendMinutes));
+  if (wk && we) {
+    return {
+      host,
+      weekdayMinutes: clampSiteBudgetMinutes(/** @type {{ weekdayMinutes: unknown }} */ (row).weekdayMinutes),
+      weekendMinutes: clampSiteBudgetMinutes(/** @type {{ weekendMinutes: unknown }} */ (row).weekendMinutes),
+    };
+  }
+  if ("dailyMinutes" in row && Number.isFinite(Number(/** @type {{ dailyMinutes?: unknown }} */ (row).dailyMinutes))) {
+    const d = clampSiteBudgetMinutes(/** @type {{ dailyMinutes: unknown }} */ (row).dailyMinutes);
+    return { host, weekdayMinutes: d, weekendMinutes: d };
   }
   if ("maxSessionMinutes" in row) {
-    const m = Math.min(30, Math.max(1, Math.floor(Number(row.maxSessionMinutes) || 10)));
-    const dailyMinutes = Math.min(120, Math.max(15, m * 5));
-    return { host, dailyMinutes };
+    const m = Math.min(30, Math.max(1, Math.floor(Number(/** @type {{ maxSessionMinutes?: unknown }} */ (row).maxSessionMinutes) || 10)));
+    const daily = Math.min(120, Math.max(15, m * 5));
+    return { host, weekdayMinutes: daily, weekendMinutes: daily };
   }
-  return { host, dailyMinutes: defaultDaily };
+  if (wk) {
+    return {
+      host,
+      weekdayMinutes: clampSiteBudgetMinutes(/** @type {{ weekdayMinutes: unknown }} */ (row).weekdayMinutes),
+      weekendMinutes: DEFAULT_SITE_WEEKEND_MINUTES,
+    };
+  }
+  if (we) {
+    return {
+      host,
+      weekdayMinutes: DEFAULT_SITE_WEEKDAY_MINUTES,
+      weekendMinutes: clampSiteBudgetMinutes(/** @type {{ weekendMinutes: unknown }} */ (row).weekendMinutes),
+    };
+  }
+  return {
+    host,
+    weekdayMinutes: DEFAULT_SITE_WEEKDAY_MINUTES,
+    weekendMinutes: DEFAULT_SITE_WEEKEND_MINUTES,
+  };
 }
 
 /** @param {unknown[]} sites */
@@ -91,7 +137,11 @@ export function getManagedSiteRow(hostname, managedSites) {
   });
   const norm = normalizeSiteRow(raw || { host: key });
   if (!norm) return null;
-  return { hostKey: key, dailyMinutes: norm.dailyMinutes };
+  return {
+    hostKey: key,
+    weekdayMinutes: norm.weekdayMinutes,
+    weekendMinutes: norm.weekendMinutes,
+  };
 }
 
 /**
@@ -115,12 +165,16 @@ export function getGateLimits(hostname, managedSites, slice) {
     globalUsed = 0;
     siteUsed = 0;
   }
-  const siteLeft = Math.max(0, row.dailyMinutes - siteUsed);
+  const siteCap = siteDailyBudgetMinutes(row);
+  const siteLeft = Math.max(0, siteCap - siteUsed);
   const globalLeft = Math.max(0, globalCap - globalUsed);
   const maxSingleSession = Math.min(30, siteLeft, globalLeft);
   return {
     hostKey: row.hostKey,
-    dailyMinutes: row.dailyMinutes,
+    /** Today’s per-site budget cap (weekday vs weekend). */
+    dailyMinutes: siteCap,
+    weekdayMinutes: row.weekdayMinutes,
+    weekendMinutes: row.weekendMinutes,
     siteLeft,
     globalLeft,
     globalCap,
@@ -200,7 +254,8 @@ export async function ensureDefaults() {
     managedSites = cur.managedHosts
       .map((h) => ({
         host: canonicalHost(typeof h === "string" ? h : ""),
-        dailyMinutes: effectiveGlobalDailyMax(),
+        weekdayMinutes: DEFAULT_SITE_WEEKDAY_MINUTES,
+        weekendMinutes: DEFAULT_SITE_WEEKEND_MINUTES,
       }))
       .filter((s) => s.host);
     patch.managedSites = managedSites;
@@ -214,7 +269,12 @@ export async function ensureDefaults() {
     const normalized = cur.managedSites.map(normalizeSiteRow).filter(Boolean);
     const dirty =
       normalized.length !== cur.managedSites.length ||
-      cur.managedSites.some((s) => s && typeof s === "object" && "maxSessionMinutes" in s);
+      cur.managedSites.some((s) => {
+        if (typeof s === "string") return true;
+        if (!s || typeof s !== "object") return false;
+        if ("maxSessionMinutes" in s || "dailyMinutes" in s) return true;
+        return !("weekdayMinutes" in s) || !("weekendMinutes" in s);
+      });
     if (dirty) patch.managedSites = normalized;
   }
 

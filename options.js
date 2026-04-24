@@ -38,10 +38,16 @@ function lineToHost(line) {
 
 /**
  * @param {string} host
- * @param {number} dailyMinutes
+ * @param {number} weekdayMinutes
+ * @param {number} weekendMinutes
  * @param {number | null} leftToday null when no host yet
  */
-function addRow(host = "", dailyMinutes = shared.effectiveGlobalDailyMax(), leftToday = null) {
+function addRow(
+  host = "",
+  weekdayMinutes = shared.DEFAULT_SITE_WEEKDAY_MINUTES,
+  weekendMinutes = shared.DEFAULT_SITE_WEEKEND_MINUTES,
+  leftToday = null
+) {
   const row = document.createElement("div");
   row.className = "site-row";
   const hostIn = document.createElement("input");
@@ -52,14 +58,22 @@ function addRow(host = "", dailyMinutes = shared.effectiveGlobalDailyMax(), left
   const leftSpan = document.createElement("span");
   leftSpan.className = "site-left";
   leftSpan.textContent = leftToday == null ? "—" : `${leftToday} min`;
-  const budgetIn = document.createElement("input");
-  budgetIn.type = "number";
-  budgetIn.className = "site-budget";
-  budgetIn.min = "1";
-  budgetIn.max = "480";
-  budgetIn.step = "1";
-  budgetIn.title = "Minutes this site may use per calendar day";
-  budgetIn.value = String(Math.min(480, Math.max(1, Math.floor(dailyMinutes))));
+  const budgetWd = document.createElement("input");
+  budgetWd.type = "number";
+  budgetWd.className = "site-budget-weekday";
+  budgetWd.min = "1";
+  budgetWd.max = "480";
+  budgetWd.step = "1";
+  budgetWd.title = "Minutes this site may use per calendar day (Mon–Fri)";
+  budgetWd.value = String(Math.min(480, Math.max(1, Math.floor(weekdayMinutes))));
+  const budgetWe = document.createElement("input");
+  budgetWe.type = "number";
+  budgetWe.className = "site-budget-weekend";
+  budgetWe.min = "1";
+  budgetWe.max = "480";
+  budgetWe.step = "1";
+  budgetWe.title = "Minutes this site may use per calendar day (Sat–Sun)";
+  budgetWe.value = String(Math.min(480, Math.max(1, Math.floor(weekendMinutes))));
   const rm = document.createElement("button");
   rm.type = "button";
   rm.className = "remove-row";
@@ -69,15 +83,16 @@ function addRow(host = "", dailyMinutes = shared.effectiveGlobalDailyMax(), left
     row.remove();
     if (!siteRowsEl.querySelector(".site-row")) addRow();
   });
-  row.append(hostIn, leftSpan, budgetIn, rm);
+  row.append(hostIn, leftSpan, budgetWd, budgetWe, rm);
   siteRowsEl.appendChild(row);
 }
 
-function minutesLeftForHost(host, dailyMinutes, usageByHost, usageDate, today) {
+function minutesLeftForHost(host, norm, usageByHost, usageDate, today) {
   if (!host) return null;
   const used =
     usageDate === today ? Math.max(0, Math.floor(Number(usageByHost?.[host]) || 0)) : 0;
-  return Math.max(0, dailyMinutes - used);
+  const cap = shared.siteDailyBudgetMinutes(norm);
+  return Math.max(0, cap - used);
 }
 
 async function load() {
@@ -102,8 +117,8 @@ async function load() {
     for (const s of sites) {
       const norm = shared.normalizeSiteRow(s);
       if (!norm) continue;
-      const left = minutesLeftForHost(norm.host, norm.dailyMinutes, usageByHost, usageDate, today);
-      addRow(norm.host, norm.dailyMinutes, left);
+      const left = minutesLeftForHost(norm.host, norm, usageByHost, usageDate, today);
+      addRow(norm.host, norm.weekdayMinutes, norm.weekendMinutes, left);
     }
   }
   activitiesEl.value = (alternativeActivities || []).join("\n");
@@ -117,18 +132,23 @@ addSiteBtn.addEventListener("click", () => addRow());
 
 saveBtn.addEventListener("click", async () => {
   const rows = Array.from(siteRowsEl.querySelectorAll(".site-row"));
-  /** @type {Map<string, { host: string, dailyMinutes: number }>} */
+  /** @type {Map<string, { host: string, weekdayMinutes: number, weekendMinutes: number }>} */
   const byHost = new Map();
   for (const row of rows) {
     const hostRaw = /** @type {HTMLInputElement} */ (row.querySelector(".site-host")).value;
-    const budgetRaw = /** @type {HTMLInputElement} */ (row.querySelector(".site-budget")).value;
+    const wdRaw = /** @type {HTMLInputElement} */ (row.querySelector(".site-budget-weekday")).value;
+    const weRaw = /** @type {HTMLInputElement} */ (row.querySelector(".site-budget-weekend")).value;
     const host = lineToHost(hostRaw);
     if (!host) continue;
-    const dailyMinutes = Math.min(
+    const weekdayMinutes = Math.min(
       480,
-      Math.max(1, Math.floor(Number(budgetRaw)) || shared.effectiveGlobalDailyMax())
+      Math.max(1, Math.floor(Number(wdRaw)) || shared.DEFAULT_SITE_WEEKDAY_MINUTES)
     );
-    byHost.set(host, { host, dailyMinutes });
+    const weekendMinutes = Math.min(
+      480,
+      Math.max(1, Math.floor(Number(weRaw)) || shared.DEFAULT_SITE_WEEKEND_MINUTES)
+    );
+    byHost.set(host, { host, weekdayMinutes, weekendMinutes });
   }
   const managedSites = [...byHost.values()];
 
