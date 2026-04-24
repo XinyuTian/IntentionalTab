@@ -223,13 +223,39 @@ export const DEFAULT_ALTERNATIVE_ACTIVITIES = [
   "💌 Send a kind message to someone you appreciate",
   "🫧 Take two minutes for calm, steady breathing",
   "🎨 Spend a little time on a hobby that lights you up",
+  "🎹 Play the piano for a few minutes—even scales count",
+  "✏️ Doodle shapes or patterns on scrap paper",
+  "💪 Drop and do a small set of pushups",
+  "🧘‍♀️ Run through a 3-minute body scan in your mind",
+  "🤸 Kick up into a handstand against the wall for a few breaths",
+  "🏋️ Do a few pull-ups or hang from a bar and breathe",
+  "🧖 Put on a face mask and lie back for a quiet minute",
+  "🎤 Sing one song loudly like nobody’s listening",
+  "💆 Rub your own neck, shoulders, and hands",
+  "🧸 Hold a stuffed animal or pillow and breathe slowly",
+  "🧹 Clean one corner of the room or clear a surface",
+  "🖥️ Wipe down your monitor and keyboard",
+  "🛋️ Stand up from the couch, stretch tall, and roll your shoulders",
+  "☕ Brew tea or coffee slowly and sip without scrolling",
+  "🪴 Water a plant and notice one new leaf or bud",
+  "💃 Put on one song and dance in your chair or kitchen",
+  "📞 Call someone you like for a two-minute hello",
+  "☁️ Stare out the window and watch clouds or trees move",
+  "🦶 Try a slow one-foot balance, each side",
+  "🧱 Hold a plank for as long as feels kind, then rest",
+  "👀 Name five things you can see—simple grounding",
+  "🗂️ Sort one small pile: mail, tabs list, or a drawer",
+  "🎵 Hum your favorite chorus a few times through",
+  "🚿 Splash cool water on your wrists and face",
+  "🖼️ Flip through a few old photos and smile once",
+  "🧂 Prep a simple snack with both hands present",
 ];
 
 export async function ensureDefaults() {
   const keys = [
     "managedSites",
     "managedHosts",
-    "alternativeActivities",
+    "alternativeActivities", // legacy; removed below if present
     "dailyUsageMinutes",
     "dailyUsageDate",
     "dailyUsageByHost",
@@ -278,9 +304,6 @@ export async function ensureDefaults() {
     if (dirty) patch.managedSites = normalized;
   }
 
-  if (!Array.isArray(cur.alternativeActivities) || cur.alternativeActivities.length === 0) {
-    patch.alternativeActivities = [...DEFAULT_ALTERNATIVE_ACTIVITIES];
-  }
   if (typeof cur.dailyUsageMinutes !== "number") patch.dailyUsageMinutes = 0;
   if (typeof cur.dailyUsageDate !== "string") patch.dailyUsageDate = today;
   if (!cur.sessionsByHost || typeof cur.sessionsByHost !== "object") {
@@ -290,6 +313,9 @@ export async function ensureDefaults() {
   if (Object.keys(patch).length) await chrome.storage.local.set(patch);
   if (cur.dailyMaxMinutes !== undefined) {
     await chrome.storage.local.remove("dailyMaxMinutes");
+  }
+  if ("alternativeActivities" in cur) {
+    await chrome.storage.local.remove("alternativeActivities");
   }
 }
 

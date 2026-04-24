@@ -31,6 +31,7 @@
       }
       .encourage-inner {
         position: relative;
+        padding-right: 2.65rem;
       }
       .encourage-chip {
         display: inline-block;
@@ -67,6 +68,49 @@
         margin: 0;
         letter-spacing: -0.02em;
         text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+      }
+      button.encourage-refresh {
+        position: absolute;
+        top: 0.55rem;
+        right: 0.55rem;
+        width: 2.35rem;
+        height: 2.35rem;
+        margin: 0;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(85, 60, 154, 0.3);
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.92);
+        color: #553c9a;
+        cursor: pointer;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+      }
+      button.encourage-refresh svg {
+        display: block;
+      }
+      button.encourage-refresh:hover {
+        background: #faf5ff;
+        border-color: #805ad5;
+        color: #44337a;
+      }
+      button.encourage-refresh:focus-visible {
+        outline: 2px solid #805ad5;
+        outline-offset: 2px;
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        button.encourage-refresh:hover svg {
+          animation: refreshNudge 0.45s ease-out;
+        }
+      }
+      @keyframes refreshNudge {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(180deg);
+        }
       }
       @media (prefers-reduced-motion: no-preference) {
         .encourage {
@@ -131,7 +175,7 @@
         font-size: 0.95rem;
         margin-top: 0.75rem;
       }
-      button {
+      #submit {
         margin-top: 1.25rem;
         padding: 0.55rem 1.2rem;
         font-weight: 600;
@@ -141,10 +185,10 @@
         color: #fff;
         cursor: pointer;
       }
-      button:hover {
+      #submit:hover {
         background: #2c5282;
       }
-      button:disabled {
+      #submit:disabled {
         opacity: 0.55;
         cursor: not-allowed;
       }
@@ -156,6 +200,31 @@
 
     <div class="encourage" id="encourageBox">
       <div class="encourage-inner">
+        <button
+          type="button"
+          class="encourage-refresh"
+          id="encourageRefresh"
+          title="Another sparkle"
+          aria-label="Show another sparkle"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.1"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M23 4v6h-6" />
+            <path d="M20.49 15A9 9 0 1 1 21 12" />
+            <path d="M1 20v-6h6" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+          </svg>
+        </button>
         <div class="encourage-chip" id="encourageChip" aria-hidden="true"></div>
         <p class="encourage-lead" id="encourageLead"></p>
         <div class="encourage-spotlight">

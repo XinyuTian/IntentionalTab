@@ -2,17 +2,9 @@ import * as shared from "./shared.js";
 
 const siteRowsEl = document.getElementById("siteRows");
 const addSiteBtn = document.getElementById("addSite");
-const activitiesEl = document.getElementById("activities");
 const saveBtn = document.getElementById("save");
 const statusEl = document.getElementById("status");
 const capNoteEl = document.getElementById("capNote");
-
-function parseLines(text) {
-  return text
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
 
 function flash(msg) {
   statusEl.hidden = false;
@@ -97,13 +89,11 @@ function minutesLeftForHost(host, norm, usageByHost, usageDate, today) {
 
 async function load() {
   await shared.ensureDefaults();
-  const { managedSites, alternativeActivities, dailyUsageByHost, dailyUsageDate } =
-    await chrome.storage.local.get([
-      "managedSites",
-      "alternativeActivities",
-      "dailyUsageByHost",
-      "dailyUsageDate",
-    ]);
+  const { managedSites, dailyUsageByHost, dailyUsageDate } = await chrome.storage.local.get([
+    "managedSites",
+    "dailyUsageByHost",
+    "dailyUsageDate",
+  ]);
   const today = shared.localDateKey();
   const usageByHost =
     dailyUsageByHost && typeof dailyUsageByHost === "object" ? dailyUsageByHost : {};
@@ -121,8 +111,6 @@ async function load() {
       addRow(norm.host, norm.weekdayMinutes, norm.weekendMinutes, left);
     }
   }
-  activitiesEl.value = (alternativeActivities || []).join("\n");
-
   const cap = shared.effectiveGlobalDailyMax();
   const isWeekend = cap === 120;
   capNoteEl.textContent = `Today’s overall cap is ${cap} minutes (${isWeekend ? "weekend" : "weekday"}). Per-site “left today” only counts time on that site; the gate also enforces the overall cap across all sites.`;
@@ -152,15 +140,8 @@ saveBtn.addEventListener("click", async () => {
   }
   const managedSites = [...byHost.values()];
 
-  const alternativeActivities = parseLines(activitiesEl.value);
-  if (alternativeActivities.length === 0) {
-    flash("Add at least one break idea (one line).");
-    return;
-  }
-
   await chrome.storage.local.set({
     managedSites,
-    alternativeActivities,
   });
 
   const reg = await chrome.runtime.sendMessage({ type: "reregisterBarScripts" });

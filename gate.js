@@ -49,6 +49,25 @@ function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+/** @param {string[]} arr @param {string} avoid */
+function pickRandomAvoid(arr, avoid) {
+  if (!arr.length) return "";
+  if (arr.length === 1) return arr[0];
+  const pool = arr.filter((s) => s !== avoid);
+  const use = pool.length ? pool : arr;
+  return use[Math.floor(Math.random() * use.length)];
+}
+
+/**
+ * @param {string[]} activities
+ * @param {string} [prevSuggestion] prefer a different suggestion when possible
+ */
+function paintSparkle(activities, prevSuggestion) {
+  encourageChip.textContent = pickRandom(ENCOURAGEMENT_CHIPS);
+  encourageLead.textContent = pickRandom(ENCOURAGEMENT_LEADS);
+  encourageSuggestion.textContent = pickRandomAvoid(activities, prevSuggestion || "");
+}
+
 const params = new URLSearchParams(window.location.search);
 const returnParam = params.get("return") || "";
 
@@ -57,6 +76,7 @@ const encourageChip = document.getElementById("encourageChip");
 const targetLine = document.getElementById("targetLine");
 const encourageLead = document.getElementById("encourageLead");
 const encourageSuggestion = document.getElementById("encourageSuggestion");
+const encourageRefresh = document.getElementById("encourageRefresh");
 const form = document.getElementById("form");
 const reasonEl = document.getElementById("reason");
 const durationEl = document.getElementById("duration");
@@ -92,7 +112,6 @@ async function init() {
   await shared.ensureDefaults();
   const data = await chrome.storage.local.get([
     "managedSites",
-    "alternativeActivities",
     "dailyUsageMinutes",
     "dailyUsageDate",
     "dailyUsageByHost",
@@ -125,13 +144,11 @@ async function init() {
 
   targetLine.textContent = `You’re about to open: ${limits.hostKey}`;
 
-  let activities = Array.isArray(data.alternativeActivities)
-    ? data.alternativeActivities.map((s) => String(s).trim()).filter(Boolean)
-    : [...shared.DEFAULT_ALTERNATIVE_ACTIVITIES];
-  if (!activities.length) activities = [...shared.DEFAULT_ALTERNATIVE_ACTIVITIES];
-  encourageChip.textContent = pickRandom(ENCOURAGEMENT_CHIPS);
-  encourageLead.textContent = pickRandom(ENCOURAGEMENT_LEADS);
-  encourageSuggestion.textContent = pickRandom(activities);
+  const activities = [...shared.DEFAULT_ALTERNATIVE_ACTIVITIES];
+  paintSparkle(activities, "");
+  encourageRefresh.addEventListener("click", () => {
+    paintSparkle(activities, encourageSuggestion.textContent);
+  });
 
   const dayKind = limits.globalCap === 120 ? "weekend" : "weekday";
   quotaLine.textContent = `This site has about ${limits.siteLeft} of ${limits.dailyMinutes} minutes left for today. Overall you have about ${limits.globalLeft} of ${limits.globalCap} minutes left (${dayKind} cap). Each visit can be up to 30 minutes, or less if you’re running low.`;
