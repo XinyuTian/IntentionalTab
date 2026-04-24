@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IntentionalTab — Settings</title>
+    <style>
+      :root {
+        font-family: system-ui, sans-serif;
+        color: #1a202c;
+        line-height: 1.5;
+      }
+      body {
+        max-width: 48rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      h1 {
+        font-size: 1.5rem;
+        font-weight: 600;
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-top: 1.25rem;
+        margin-bottom: 0.35rem;
+      }
+      .grid-head {
+        display: grid;
+        grid-template-columns: 1fr 7.5rem 8.5rem 5rem;
+        gap: 0.5rem;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #4a5568;
+        margin-bottom: 0.35rem;
+      }
+      .site-row {
+        display: grid;
+        grid-template-columns: 1fr 7.5rem 8.5rem 5rem;
+        gap: 0.5rem;
+        align-items: center;
+        margin-bottom: 0.45rem;
+      }
+      .site-row input[type="text"],
+      .site-row input[type="number"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.45rem 0.55rem;
+        border: 1px solid #cbd5e0;
+        border-radius: 6px;
+        font: inherit;
+      }
+      .site-left {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #2c7a7b;
+        text-align: center;
+      }
+      .site-row button.remove-row {
+        padding: 0.4rem 0.35rem;
+        font-size: 0.85rem;
+        border: 1px solid #cbd5e0;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .site-row button.remove-row:hover {
+        background: #fed7d7;
+        border-color: #fc8181;
+      }
+      #addSite {
+        margin-top: 0.5rem;
+        padding: 0.45rem 0.85rem;
+        font-weight: 600;
+        border: 1px dashed #a0aec0;
+        border-radius: 6px;
+        background: #f7fafc;
+        cursor: pointer;
+      }
+      #addSite:hover {
+        background: #edf2f7;
+      }
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.5rem 0.6rem;
+        border: 1px solid #cbd5e0;
+        border-radius: 6px;
+        font: inherit;
+      }
+      textarea#activities {
+        min-height: 7rem;
+        resize: vertical;
+      }
+      .hint {
+        font-size: 0.85rem;
+        color: #4a5568;
+        margin-top: 0.25rem;
+      }
+      .cap-note {
+        background: #ebf8ff;
+        border: 1px solid #bee3f8;
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        margin-top: 0.75rem;
+        font-size: 0.9rem;
+        color: #2c5282;
+      }
+      #save {
+        margin-top: 1.5rem;
+        padding: 0.55rem 1.1rem;
+        font-weight: 600;
+        border: none;
+        border-radius: 6px;
+        background: #2b6cb0;
+        color: #fff;
+        cursor: pointer;
+      }
+      #save:hover {
+        background: #2c5282;
+      }
+      #status {
+        margin-top: 0.75rem;
+        font-size: 0.9rem;
+        color: #2f855a;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>IntentionalTab</h1>
+    <p>Each site has its own daily budget. Your <strong>total</strong> intentional time is also capped: <strong>60 minutes on weekdays</strong> and <strong>120 minutes on weekends</strong> (local time).</p>
+
+    <label>Managed sites</label>
+    <div class="grid-head">
+      <span>Website</span>
+      <span>Left today</span>
+      <span>Budget / day</span>
+      <span></span>
+    </div>
+    <div id="siteRows" aria-live="polite"></div>
+    <button type="button" id="addSite">Add site</button>
+    <p class="hint">
+      <strong>Budget / day</strong> is how many minutes that site may use per calendar day. <strong>Left today</strong> is that budget minus what you’ve already spent there today (and resets at local midnight). A single visit is still at most 30 minutes, and cannot exceed what’s left for the site or for your overall day cap.
+    </p>
+
+    <label for="activities">Ideas for breaks (one per line)</label>
+    <textarea id="activities" placeholder="One random line appears on the gate."></textarea>
+    <p class="hint">Each gate visit shows one random idea with a short encouraging lead-in.</p>
+
+    <div class="cap-note" id="capNote"></div>
+
+    <button type="button" id="save">Save</button>
+    <div id="status" hidden></div>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

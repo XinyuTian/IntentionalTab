@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IntentionalTab — Gate</title>
+    <style>
+      :root {
+        font-family: system-ui, sans-serif;
+        color: #1a202c;
+        line-height: 1.45;
+      }
+      body {
+        max-width: 36rem;
+        margin: 2rem auto;
+        padding: 0 1rem 3rem;
+      }
+      h1 {
+        font-size: 1.35rem;
+        font-weight: 600;
+      }
+      .encourage {
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(145deg, #fff5f7 0%, #ebf8ff 45%, #e6fffa 100%);
+        border: 2px solid #b794f6;
+        border-radius: 16px;
+        padding: 1rem 1.15rem 1.15rem;
+        margin: 1.15rem 0;
+        box-shadow: 0 4px 28px rgba(159, 122, 234, 0.22), 0 2px 10px rgba(0, 0, 0, 0.06);
+      }
+      .encourage-inner {
+        position: relative;
+      }
+      .encourage-chip {
+        display: inline-block;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #553c9a;
+        background: rgba(255, 255, 255, 0.85);
+        border-radius: 999px;
+        padding: 0.25rem 0.65rem;
+        margin-bottom: 0.55rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+      }
+      .encourage-lead {
+        font-size: 1rem;
+        color: #2c5282;
+        margin: 0 0 0.75rem;
+        line-height: 1.5;
+        font-weight: 500;
+      }
+      .encourage-spotlight {
+        background: rgba(255, 255, 255, 0.72);
+        backdrop-filter: blur(6px);
+        border-radius: 12px;
+        padding: 0.85rem 1rem;
+        border: 1px solid rgba(159, 122, 234, 0.25);
+      }
+      .encourage-suggestion {
+        font-size: 1.18rem;
+        font-weight: 700;
+        line-height: 1.45;
+        color: #1a202c;
+        margin: 0;
+        letter-spacing: -0.02em;
+        text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        .encourage {
+          animation: encouragePop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+        .encourage-spotlight {
+          animation: spotlightShine 4s ease-in-out infinite;
+        }
+      }
+      @keyframes encouragePop {
+        from {
+          opacity: 0;
+          transform: scale(0.96) translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+      }
+      @keyframes spotlightShine {
+        0%,
+        100% {
+          box-shadow: inset 0 0 0 1px rgba(159, 122, 234, 0.12);
+        }
+        50% {
+          box-shadow: inset 0 0 20px rgba(129, 230, 217, 0.35);
+        }
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-top: 1.1rem;
+        margin-bottom: 0.35rem;
+      }
+      input[type="text"],
+      select,
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.5rem 0.6rem;
+        border: 1px solid #cbd5e0;
+        border-radius: 6px;
+        font: inherit;
+      }
+      textarea {
+        min-height: 4.5rem;
+        resize: vertical;
+      }
+      .row {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .meta {
+        font-size: 0.9rem;
+        color: #4a5568;
+        margin-top: 0.5rem;
+      }
+      .error {
+        color: #c53030;
+        font-size: 0.95rem;
+        margin-top: 0.75rem;
+      }
+      button {
+        margin-top: 1.25rem;
+        padding: 0.55rem 1.2rem;
+        font-weight: 600;
+        border: none;
+        border-radius: 6px;
+        background: #2b6cb0;
+        color: #fff;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #2c5282;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>IntentionalTab</h1>
+    <p id="targetLine"></p>
+
+    <div class="encourage" id="encourageBox">
+      <div class="encourage-inner">
+        <div class="encourage-chip" id="encourageChip" aria-hidden="true"></div>
+        <p class="encourage-lead" id="encourageLead"></p>
+        <div class="encourage-spotlight">
+          <p class="encourage-suggestion" id="encourageSuggestion"></p>
+        </div>
+      </div>
+    </div>
+
+    <form id="form">
+      <label for="reason">Why are you opening this site now?</label>
+      <textarea id="reason" required maxlength="2000" placeholder="A short, honest reason is enough—you’re not on trial."></textarea>
+
+      <label for="duration">How long (minutes)?</label>
+      <div class="row">
+        <select id="duration" name="duration"></select>
+      </div>
+      <p class="meta" id="quotaLine"></p>
+
+      <div class="error" id="error" hidden></div>
+      <button type="submit" id="submit">Continue</button>
+    </form>
+
+    <script type="module" src="gate.js"></script>
+  </body>
+</html>
