@@ -230,10 +230,13 @@ async function init() {
     const tabId = tab?.id ?? null;
     const tabIds = await collectTabIdsForHost(h, tabId);
 
-    const endTime = Date.now() + duration * 60 * 1000;
+    const startTime = Date.now();
+    const endTime = startTime + duration * 60 * 1000;
     const sessionsByHost = { ...(fresh.sessionsByHost || {}) };
     sessionsByHost[h] = {
       endTime,
+      startTime,
+      plannedMinutes: duration,
       reason,
       tabIds,
     };
