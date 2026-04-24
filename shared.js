@@ -239,6 +239,7 @@ export const DEFAULT_ALTERNATIVE_ACTIVITIES = [
   "☕ Brew tea or coffee slowly and sip without scrolling",
   "🪴 Water a plant and notice one new leaf or bud",
   "💃 Put on one song and dance in your chair or kitchen",
+  "⭕ Spin a hula hoop for a few minutes—hips and laughter count",
   "📞 Call someone you like for a two-minute hello",
   "☁️ Stare out the window and watch clouds or trees move",
   "🦶 Try a slow one-foot balance, each side",
