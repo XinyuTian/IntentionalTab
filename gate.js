@@ -43,6 +43,12 @@ const ENCOURAGEMENT_LEADS = [
   "This site isn’t going anywhere. First, a splash of something nicer for you:",
   "Tiny pause → better brain. Roll the dice on this feel-good option:",
 ];
+const AI_REVIEW_GRANT_MINUTES = 20;
+const AI_REVIEW_MODEL = "deepseek";
+const AI_REVIEW_ENDPOINT = "https://space.ai-builders.com/backend/v1/chat/completions";
+const AI_TOKEN_FILE = "ai-token.local.json";
+const AI_REVIEW_SYSTEM_PROMPT =
+  'You are a strict validator for productivity reasons to access distracting websites. Return JSON only: {"approved": boolean, "feedback": string}. Approve ONLY when the reason is specific, concrete, and clearly tied to productive intent with context (task + purpose). Reject vague reasons like "study", "work", "research", "just checking updates", or generic productivity statements.';
 
 function pickRandom(arr) {
   if (!arr.length) return "";
@@ -83,6 +89,7 @@ const durationEl = document.getElementById("duration");
 const quotaLine = document.getElementById("quotaLine");
 const errorEl = document.getElementById("error");
 const submitBtn = document.getElementById("submit");
+const useAiReviewEl = document.getElementById("useAiReview");
 
 function showError(msg) {
   errorEl.hidden = false;
@@ -92,6 +99,102 @@ function showError(msg) {
 function clearError() {
   errorEl.hidden = true;
   errorEl.textContent = "";
+}
+
+async function loadTokenFromLocalFile() {
+  try {
+    const url = chrome.runtime.getURL(AI_TOKEN_FILE);
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return "";
+    const data = await res.json();
+    return typeof data?.aiBuilderToken === "string" ? data.aiBuilderToken.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+/** @param {string} text */
+function parseAiJson(text) {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    try {
+      const parsed = JSON.parse(m[0]);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** @param {string} reason */
+async function evaluateReasonWithAI(reason) {
+  const fileToken = await loadTokenFromLocalFile();
+  const { aiBuilderToken, AI_BUILDER_TOKEN } = await chrome.storage.local.get([
+    "aiBuilderToken",
+    "AI_BUILDER_TOKEN",
+  ]);
+  const token =
+    fileToken ||
+    (typeof aiBuilderToken === "string" && aiBuilderToken.trim()
+      ? aiBuilderToken.trim()
+      : typeof AI_BUILDER_TOKEN === "string" && AI_BUILDER_TOKEN.trim()
+        ? AI_BUILDER_TOKEN.trim()
+        : "");
+
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const res = await fetch(AI_REVIEW_ENDPOINT, {
+      method: "POST",
+      headers,
+      signal: ctl.signal,
+      body: JSON.stringify({
+        model: AI_REVIEW_MODEL,
+        temperature: 0.1,
+        max_tokens: 220,
+        messages: [
+          { role: "system", content: AI_REVIEW_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: `Reason to evaluate:\n${reason}\n\nRemember: return strict JSON only with keys approved and feedback.`,
+          },
+        ],
+      }),
+    });
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(
+          "AI review needs an API token. Set `aiBuilderToken` in ai-token.local.json (preferred) or chrome.storage.local."
+        );
+      }
+      throw new Error(`AI review failed (${res.status}).`);
+    }
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (typeof content !== "string" || !content.trim()) {
+      throw new Error("AI review returned no content.");
+    }
+    const parsed = parseAiJson(content);
+    if (!parsed) throw new Error("AI review returned invalid JSON.");
+    return {
+      approved: Boolean(parsed.approved),
+      feedback:
+        typeof parsed.feedback === "string" && parsed.feedback.trim()
+          ? parsed.feedback.trim()
+          : parsed.approved
+            ? "Approved."
+            : "Not approved.",
+    };
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 /** @param {number} sessionMax min(30, site left, global left) */
@@ -152,9 +255,15 @@ async function init() {
 
   const dayKind = limits.globalCap === 120 ? "weekend" : "weekday";
   quotaLine.textContent = `This site has about ${limits.siteLeft} of ${limits.dailyMinutes} minutes left for today. Overall you have about ${limits.globalLeft} of ${limits.globalCap} minutes left (${dayKind} cap). Each visit can be up to 30 minutes, or less if you’re running low.`;
+  let noRegularTimeLeft = false;
+  const refreshContinueState = () => {
+    submitBtn.disabled = noRegularTimeLeft && !useAiReviewEl.checked;
+  };
+  useAiReviewEl.addEventListener("change", refreshContinueState);
 
   if (limits.maxSingleSession < 1 || durationEl.options.length === 0) {
-    submitBtn.disabled = true;
+    noRegularTimeLeft = true;
+    refreshContinueState();
     showError(
       limits.siteLeft < 1
         ? "This site’s daily budget is already used up. Come back tomorrow, or raise its budget in settings."
@@ -167,12 +276,12 @@ async function init() {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     clearError();
+    const aiMode = Boolean(useAiReviewEl.checked);
     const reason = reasonEl.value.trim();
     if (!reason) {
       showError("Please add a short reason—you’ve got this.");
       return;
     }
-
     const fresh = await chrome.storage.local.get([
       "managedSites",
       "sessionsByHost",
@@ -208,21 +317,46 @@ async function init() {
       return;
     }
 
-    const duration = Number(durationEl.value);
-    if (!Number.isFinite(duration) || duration < 1 || duration > lim.maxSingleSession) {
+    let duration = Number(durationEl.value);
+    if (aiMode && (!Number.isFinite(duration) || duration < 1)) {
+      // AI path can still proceed when regular budgeted minutes are exhausted.
+      duration = 0;
+    }
+    if (!aiMode && (!Number.isFinite(duration) || duration < 1 || duration > lim.maxSingleSession)) {
       showError(`Pick between 1 and ${lim.maxSingleSession} minute(s) for this visit.`);
       return;
     }
 
-    if (usage2 + duration > lim.globalCap) {
+    if (!aiMode && usage2 + duration > lim.globalCap) {
       showError("That would go past your overall daily cap—choose a shorter visit.");
       return;
     }
 
     const siteUsed = Math.max(0, Math.floor(Number(byHost[lim.hostKey]) || 0));
-    if (siteUsed + duration > lim.dailyMinutes) {
+    if (!aiMode && siteUsed + duration > lim.dailyMinutes) {
       showError("That would go past this site’s daily budget—choose a shorter visit or raise its budget in settings.");
       return;
+    }
+    let bonusMinutes = 0;
+    if (aiMode) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "AI checking reason...";
+      try {
+        const ai = await evaluateReasonWithAI(reason);
+        if (!ai.approved) {
+          showError(`AI review did not approve this reason: ${ai.feedback}`);
+          return;
+        }
+        bonusMinutes = AI_REVIEW_GRANT_MINUTES;
+      } catch (err) {
+        showError(
+          `AI review failed: ${err instanceof Error ? err.message : "unknown error"}`
+        );
+        return;
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Continue";
+      }
     }
 
     const h = lim.hostKey;
@@ -231,12 +365,14 @@ async function init() {
     const tabIds = await collectTabIdsForHost(h, tabId);
 
     const startTime = Date.now();
-    const endTime = startTime + duration * 60 * 1000;
+    const grantedMinutes = duration + bonusMinutes;
+    const endTime = startTime + grantedMinutes * 60 * 1000;
     const sessionsByHost = { ...(fresh.sessionsByHost || {}) };
     sessionsByHost[h] = {
       endTime,
       startTime,
       plannedMinutes: duration,
+      bonusMinutes,
       reason,
       tabIds,
     };
