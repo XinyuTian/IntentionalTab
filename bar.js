@@ -35,18 +35,10 @@
     return null;
   }
 
-  const REASON_MAX = 80;
   let hostEl = null;
   let shadow = null;
-  let textEl = null;
   let timeEl = null;
   let dismissed = false;
-
-  function truncate(text, max) {
-    const t = (text || "").trim();
-    if (t.length <= max) return t;
-    return t.slice(0, max - 1) + "…";
-  }
 
   function minutesLeft(endTime) {
     const ms = endTime - Date.now();
@@ -58,7 +50,6 @@
     if (hostEl && hostEl.parentNode) hostEl.parentNode.removeChild(hostEl);
     hostEl = null;
     shadow = null;
-    textEl = null;
     timeEl = null;
   }
 
@@ -72,44 +63,52 @@
         :host { all: initial; }
         .wrap {
           position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
+          bottom: max(12px, env(safe-area-inset-bottom, 0px));
+          right: max(12px, env(safe-area-inset-right, 0px));
+          left: auto;
+          top: auto;
           z-index: 2147483646;
-          min-height: 40px;
           box-sizing: border-box;
           display: flex;
           align-items: center;
-          gap: 0.65rem;
-          padding: 0.35rem 0.65rem;
-          font: 13px/1.35 system-ui, -apple-system, Segoe UI, sans-serif;
-          color: #1a202c;
+          justify-content: center;
+          min-width: 5rem;
+          padding: 0.6rem 0.8rem 0.6rem 0.65rem;
+          font: 600 1.1rem/1.25 system-ui, -apple-system, Segoe UI, sans-serif;
+          color: #234e52;
           background: #e6fffa;
-          border-bottom: 1px solid #81e6d9;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+          border: 1px solid #81e6d9;
+          border-radius: 999px;
+          box-shadow: 0 3px 14px rgba(0, 0, 0, 0.12);
         }
-        .brand { font-weight: 700; color: #234e52; flex: 0 0 auto; }
-        .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .time { font-weight: 600; flex: 0 0 auto; color: #2c7a7b; }
+        .time {
+          font-weight: 700;
+          font-size: 1.35rem;
+          color: #2c7a7b;
+          letter-spacing: -0.02em;
+        }
         button.close {
           all: unset;
           cursor: pointer;
-          font-size: 18px;
+          font-size: 0.95rem;
           line-height: 1;
-          padding: 0 0.25rem;
-          color: #234e52;
-          flex: 0 0 auto;
+          margin-left: 0.4rem;
+          padding: 0.2rem 0.2rem;
+          color: #4a5568;
+          border-radius: 4px;
+          opacity: 0.75;
         }
-        button.close:hover { color: #000; }
+        button.close:hover {
+          color: #1a202c;
+          opacity: 1;
+          background: rgba(0, 0, 0, 0.06);
+        }
       </style>
       <div class="wrap" part="wrap">
-        <span class="brand">IntentionalTab</span>
-        <span class="text"></span>
-        <span class="time"></span>
-        <button type="button" class="close" aria-label="Dismiss reminder">&times;</button>
+        <span class="time" aria-live="polite"></span>
+        <button type="button" class="close" aria-label="Hide timer (session still runs)">&times;</button>
       </div>
     `;
-    textEl = shadow.querySelector(".text");
     timeEl = shadow.querySelector(".time");
     shadow.querySelector("button.close").addEventListener("click", () => {
       dismissed = true;
@@ -135,10 +134,14 @@
       return;
     }
     if (!hostEl) buildBar();
+    if (!timeEl) return;
     const left = minutesLeft(session.endTime);
-    const reason = truncate(session.reason || "", REASON_MAX);
-    textEl.textContent = reason || "(no reason)";
     timeEl.textContent = `${left}m left`;
+    const wrap = /** @type {HTMLElement | null} */ (timeEl.closest(".wrap"));
+    if (wrap) {
+      const r = (session.reason || "").trim();
+      wrap.title = r ? `Reason: ${r}` : "";
+    }
   }
 
   tick().catch(console.error);
