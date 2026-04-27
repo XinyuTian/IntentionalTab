@@ -24,6 +24,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true;
   }
+  if (message?.type === "recomputeSessionPause") {
+    recomputeAllSessionPauses()
+      .then(() => sendResponse({ ok: true }))
+      .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
   if (message?.type === "reregisterBarScripts") {
     registerBarScriptsFromStorage()
       .then(() => sendResponse({ ok: true }))
@@ -56,7 +62,8 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (!key) return;
 
   const session = sessionsByHost?.[key];
-  if (session && session.endTime > Date.now()) {
+  const now = Date.now();
+  if (session && isSessionStillRunning(session, now)) {
     await attachTabToSession(key, tabId);
     return;
   }
@@ -96,13 +103,128 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
     }
   }
   if (changed) await chrome.storage.local.set({ sessionsByHost: next });
+  await recomputeAllSessionPauses();
 });
+
+chrome.tabs.onActivated.addListener(() => {
+  recomputeAllSessionPauses().catch(console.error);
+});
+
+chrome.windows.onFocusChanged.addListener(() => {
+  recomputeAllSessionPauses().catch(console.error);
+});
+
+/**
+ * @param {{ startTime?: number, endTime?: number, pausedAccumMs?: number, pauseStartedAt?: number }} session
+ * @param {number} endMs
+ */
+function activeElapsedMs(session, closeTime) {
+  const start = Number(session.startTime);
+  if (!Number.isFinite(start)) return 0;
+  let paused = Number(session.pausedAccumMs) || 0;
+  if (session.pauseStartedAt != null) {
+    paused += closeTime - Number(session.pauseStartedAt);
+  }
+  return Math.max(0, closeTime - start - paused);
+}
+
+/**
+ * True if the last-focused Chrome window’s active tab belongs to this session.
+ * (Time does not run when another window is focused or the session tab is not active there.)
+ * @param {number[]} tabIds
+ */
+async function isSessionTabActiveInFocusedWindow(tabIds) {
+  if (!Array.isArray(tabIds) || tabIds.length === 0) return false;
+  const set = new Set(tabIds);
+  try {
+    const win = await chrome.windows.getLastFocused({ populate: true });
+    const tabs = win.tabs || [];
+    const active = tabs.find((t) => t.active);
+    return active?.id != null && set.has(active.id);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {string} host
+ * @param {Record<string, unknown>} session
+ * @param {number} now
+ */
+function isSessionStillRunning(session, now) {
+  if (session.pauseStartedAt != null) {
+    const fr = Number(session.frozenRemainingMs);
+    if (Number.isFinite(fr) && fr > 0) return true;
+  }
+  return Number(session.endTime) > now;
+}
+
+async function stepSessionPauseState(host, session, now) {
+  const next = { ...session };
+  const tabIds = Array.isArray(session.tabIds) ? session.tabIds : [];
+  const active = await isSessionTabActiveInFocusedWindow(tabIds);
+
+  if (active) {
+    if (next.pauseStartedAt != null) {
+      const pauseStarted = Number(next.pauseStartedAt);
+      const frozen = Number(next.frozenRemainingMs);
+      const delta = now - pauseStarted;
+      next.pausedAccumMs = (Number(next.pausedAccumMs) || 0) + delta;
+      if (Number.isFinite(frozen) && frozen >= 0) {
+        next.endTime = now + frozen;
+      } else {
+        next.endTime = (Number(next.endTime) || 0) + delta;
+      }
+      next.pauseStartedAt = null;
+      next.frozenRemainingMs = null;
+      await ensureSessionAlarm(host, Number(next.endTime));
+    }
+  } else if (tabIds.length > 0) {
+    if (next.pauseStartedAt == null) {
+      next.pauseStartedAt = now;
+      next.frozenRemainingMs = Math.max(0, (Number(next.endTime) || 0) - now);
+      try {
+        await chrome.alarms.clear(`session:${host}`);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return next;
+}
+
+function sessionPauseFieldsChanged(before, after) {
+  return (
+    Number(before.endTime) !== Number(after.endTime) ||
+    before.pauseStartedAt !== after.pauseStartedAt ||
+    before.frozenRemainingMs !== after.frozenRemainingMs ||
+    (Number(before.pausedAccumMs) || 0) !== (Number(after.pausedAccumMs) || 0)
+  );
+}
+
+async function recomputeAllSessionPauses() {
+  const { sessionsByHost } = await chrome.storage.local.get("sessionsByHost");
+  if (!sessionsByHost || typeof sessionsByHost !== "object") return;
+  const now = Date.now();
+  const next = { ...sessionsByHost };
+  let changed = false;
+  for (const [host, s] of Object.entries(next)) {
+    if (!s || typeof s !== "object" || !s.endTime) continue;
+    if (!isSessionStillRunning(s, now)) continue;
+    const updated = await stepSessionPauseState(host, s, now);
+    if (sessionPauseFieldsChanged(s, updated)) {
+      next[host] = updated;
+      changed = true;
+    }
+  }
+  if (changed) await chrome.storage.local.set({ sessionsByHost: next });
+}
 
 /**
  * When the last tab for a session closes, refund minutes not yet "used" by wall
  * clock (vs the planned visit), then clear the session and alarm so the bar/timer stop.
  * @param {string} host
- * @param {{ endTime?: number, startTime?: number, plannedMinutes?: number }} session
+ * @param {{ endTime?: number, startTime?: number, plannedMinutes?: number, pausedAccumMs?: number, pauseStartedAt?: number, frozenRemainingMs?: number }} session
  */
 async function finalizeSessionUsageAndClear(host, session) {
   const planned =
@@ -115,8 +237,9 @@ async function finalizeSessionUsageAndClear(host, session) {
 
   let refund = 0;
   if (planned != null && startTime != null && endTime > 0) {
-    const end = Math.min(Date.now(), endTime);
-    const actualUsed = Math.min(planned, Math.max(0, Math.ceil((end - startTime) / 60000)));
+    const closeTime = Date.now();
+    const activeMs = activeElapsedMs(session, closeTime);
+    const actualUsed = Math.min(planned, Math.max(0, Math.ceil(activeMs / 60000)));
     refund = Math.max(0, planned - actualUsed);
   }
 
@@ -181,7 +304,8 @@ async function expireSession(host, closeTabs) {
 async function attachTabToSession(host, tabId) {
   const { sessionsByHost } = await chrome.storage.local.get("sessionsByHost");
   const session = sessionsByHost?.[host];
-  if (!session || session.endTime <= Date.now()) return;
+  const now = Date.now();
+  if (!session || !isSessionStillRunning(session, now)) return;
   const tabIds = Array.from(new Set([...(session.tabIds || []), tabId]));
   await chrome.storage.local.set({
     sessionsByHost: {
@@ -189,6 +313,7 @@ async function attachTabToSession(host, tabId) {
       [host]: { ...session, tabIds },
     },
   });
+  await recomputeAllSessionPauses();
 }
 
 /** @param {string} host @param {number} endTime */
@@ -198,14 +323,23 @@ async function ensureSessionAlarm(host, endTime) {
 }
 
 async function syncAlarmsFromStorage() {
+  await recomputeAllSessionPauses();
   const { sessionsByHost } = await chrome.storage.local.get("sessionsByHost");
   const now = Date.now();
   for (const [host, session] of Object.entries(sessionsByHost || {})) {
     if (!session?.endTime) continue;
-    if (session.endTime <= now) {
+    if (!isSessionStillRunning(session, now)) {
       await expireSession(host, true);
-    } else {
+      continue;
+    }
+    if (session.pauseStartedAt == null) {
       await ensureSessionAlarm(host, session.endTime);
+    } else {
+      try {
+        await chrome.alarms.clear(`session:${host}`);
+      } catch {
+        /* ignore */
+      }
     }
   }
 }

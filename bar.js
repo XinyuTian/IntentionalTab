@@ -40,8 +40,24 @@
   let timeEl = null;
   let dismissed = false;
 
-  function minutesLeft(endTime) {
-    const ms = endTime - Date.now();
+  function isSessionStillRunning(session) {
+    const now = Date.now();
+    if (session.pauseStartedAt != null) {
+      const fr = Number(session.frozenRemainingMs);
+      if (Number.isFinite(fr) && fr > 0) return true;
+    }
+    return Number(session.endTime) > now;
+  }
+
+  /** Remaining active-session time (pauses unless this session tab is active in the focused window). */
+  function remainingMs(session) {
+    if (session.pauseStartedAt != null && Number.isFinite(Number(session.frozenRemainingMs))) {
+      return Math.max(0, Number(session.frozenRemainingMs));
+    }
+    return Math.max(0, Number(session.endTime) - Date.now());
+  }
+
+  function minutesLeftFromMs(ms) {
     if (ms <= 0) return 0;
     return Math.ceil(ms / 60000);
   }
@@ -129,13 +145,13 @@
       return;
     }
     const session = sessionsByHost?.[key];
-    if (!session || session.endTime <= Date.now()) {
+    if (!session || !isSessionStillRunning(session)) {
       removeBar();
       return;
     }
     if (!hostEl) buildBar();
     if (!timeEl) return;
-    const left = minutesLeft(session.endTime);
+    const left = minutesLeftFromMs(remainingMs(session));
     timeEl.textContent = `${left}m left`;
     const wrap = /** @type {HTMLElement | null} */ (timeEl.closest(".wrap"));
     if (wrap) {

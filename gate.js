@@ -237,6 +237,7 @@ async function init() {
       endTime,
       startTime,
       plannedMinutes: duration,
+      pausedAccumMs: 0,
       reason,
       tabIds,
     };
@@ -258,6 +259,12 @@ async function init() {
     if (!alarmRes?.ok) {
       showError(`Could not start your session timer: ${alarmRes?.error || "unknown"}`);
       return;
+    }
+
+    try {
+      await chrome.runtime.sendMessage({ type: "recomputeSessionPause" });
+    } catch {
+      /* background may be waking; pause state will sync on next tab switch */
     }
 
     window.location.href = validated;
