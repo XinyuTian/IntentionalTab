@@ -197,7 +197,7 @@ async function evaluateReasonWithAI(reason) {
   }
 }
 
-/** @param {number} sessionMax min(30, site left, global left) */
+/** @param {number} sessionMax min(30, site minutes left today) */
 function fillDurationSelect(sessionMax) {
   durationEl.innerHTML = "";
   const cap = Math.min(30, Math.max(0, Math.floor(sessionMax)));
@@ -248,6 +248,11 @@ async function init() {
   });
 
   quotaLine.textContent = `This site has about ${limits.siteLeft} of ${limits.dailyMinutes} minutes left for today (per your weekday or weekend budget for this site). Each visit can be up to 30 minutes, or less if you’re running low.`;
+  let noRegularTimeLeft = false;
+  const refreshContinueState = () => {
+    submitBtn.disabled = noRegularTimeLeft && !useAiReviewEl.checked;
+  };
+  useAiReviewEl.addEventListener("change", refreshContinueState);
 
   if (limits.maxSingleSession < 1 || durationEl.options.length === 0) {
     noRegularTimeLeft = true;
