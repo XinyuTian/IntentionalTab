@@ -119,7 +119,7 @@
   </head>
   <body>
     <h1>IntentionalTab</h1>
-    <p>Each site has its own <strong>weekday</strong> and <strong>weekend</strong> daily budgets. Your <strong>total</strong> intentional time is also capped: <strong>60 minutes on weekdays</strong> and <strong>120 minutes on weekends</strong> (local time).</p>
+    <p>Each site has its own <strong>weekday</strong> and <strong>weekend</strong> daily budgets (local time). Defaults are 60 / 120 minutes; you can change them per site.</p>
 
     <label>Managed sites</label>
     <div class="grid-head">
@@ -132,7 +132,7 @@
     <div id="siteRows" aria-live="polite"></div>
     <button type="button" id="addSite">Add site</button>
     <p class="hint">
-      <strong>Weekday budget</strong> applies Mon–Fri; <strong>weekend budget</strong> applies Sat–Sun (local time). <strong>Left today</strong> uses whichever budget matches today, minus what you’ve already spent on that site (resets at local midnight). A single visit is still at most 30 minutes, and cannot exceed what’s left for the site or for your overall day cap.
+      <strong>Weekday budget</strong> applies Mon–Fri; <strong>weekend budget</strong> applies Sat–Sun (local time). <strong>Left today</strong> uses whichever budget matches today, minus what you’ve already spent on that site (resets at local midnight). A single visit is still at most 30 minutes, and cannot exceed what’s left for that site.
     </p>
 
     <div class="cap-note" id="capNote"></div>

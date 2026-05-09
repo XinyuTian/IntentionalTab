@@ -94,7 +94,7 @@ function clearError() {
   errorEl.textContent = "";
 }
 
-/** @param {number} sessionMax min(30, site left, global left) */
+/** @param {number} sessionMax min(30, site minutes left today) */
 function fillDurationSelect(sessionMax) {
   durationEl.innerHTML = "";
   const cap = Math.min(30, Math.max(0, Math.floor(sessionMax)));
@@ -110,12 +110,7 @@ function fillDurationSelect(sessionMax) {
 
 async function init() {
   await shared.ensureDefaults();
-  const data = await chrome.storage.local.get([
-    "managedSites",
-    "dailyUsageMinutes",
-    "dailyUsageDate",
-    "dailyUsageByHost",
-  ]);
+  const data = await chrome.storage.local.get(["managedSites", "dailyUsageDate", "dailyUsageByHost"]);
 
   const managedSites = data.managedSites || [];
   const safeReturn = shared.validateReturnUrl(returnParam, managedSites);
@@ -128,7 +123,6 @@ async function init() {
   }
 
   const slice = {
-    dailyUsageMinutes: data.dailyUsageMinutes,
     dailyUsageDate: data.dailyUsageDate,
     dailyUsageByHost: data.dailyUsageByHost,
   };
@@ -150,17 +144,14 @@ async function init() {
     paintSparkle(activities, encourageSuggestion.textContent);
   });
 
-  const dayKind = limits.globalCap === 120 ? "weekend" : "weekday";
-  quotaLine.textContent = `This site has about ${limits.siteLeft} of ${limits.dailyMinutes} minutes left for today. Overall you have about ${limits.globalLeft} of ${limits.globalCap} minutes left (${dayKind} cap). Each visit can be up to 30 minutes, or less if you’re running low.`;
+  quotaLine.textContent = `This site has about ${limits.siteLeft} of ${limits.dailyMinutes} minutes left for today (per your weekday or weekend budget for this site). Each visit can be up to 30 minutes, or less if you’re running low.`;
 
   if (limits.maxSingleSession < 1 || durationEl.options.length === 0) {
     submitBtn.disabled = true;
     showError(
       limits.siteLeft < 1
         ? "This site’s daily budget is already used up. Come back tomorrow, or raise its budget in settings."
-        : limits.globalLeft < 1
-          ? "Your overall intentional minutes for today are used up (60 on weekdays, 120 on weekends). Tomorrow is a fresh start."
-          : "Not enough time left for a visit right now."
+        : "Not enough time left for a visit right now."
     );
   }
 
@@ -176,7 +167,6 @@ async function init() {
     const fresh = await chrome.storage.local.get([
       "managedSites",
       "sessionsByHost",
-      "dailyUsageMinutes",
       "dailyUsageDate",
       "dailyUsageByHost",
     ]);
@@ -188,18 +178,15 @@ async function init() {
     }
 
     const today2 = shared.localDateKey();
-    let usage2 = typeof fresh.dailyUsageMinutes === "number" ? fresh.dailyUsageMinutes : 0;
     let usageDate2 = typeof fresh.dailyUsageDate === "string" ? fresh.dailyUsageDate : today2;
     let byHost =
       fresh.dailyUsageByHost && typeof fresh.dailyUsageByHost === "object" ? { ...fresh.dailyUsageByHost } : {};
     if (usageDate2 !== today2) {
-      usage2 = 0;
       byHost = {};
       usageDate2 = today2;
     }
 
     const lim = shared.getGateLimits(new URL(validated).hostname, sites, {
-      dailyUsageMinutes: usage2,
       dailyUsageDate: usageDate2,
       dailyUsageByHost: byHost,
     });
@@ -211,11 +198,6 @@ async function init() {
     const duration = Number(durationEl.value);
     if (!Number.isFinite(duration) || duration < 1 || duration > lim.maxSingleSession) {
       showError(`Pick between 1 and ${lim.maxSingleSession} minute(s) for this visit.`);
-      return;
-    }
-
-    if (usage2 + duration > lim.globalCap) {
-      showError("That would go past your overall daily cap—choose a shorter visit.");
       return;
     }
 
@@ -246,7 +228,6 @@ async function init() {
 
     await chrome.storage.local.set({
       sessionsByHost,
-      dailyUsageMinutes: usage2 + duration,
       dailyUsageDate: today2,
       dailyUsageByHost: byHost,
     });

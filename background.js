@@ -249,9 +249,8 @@ async function finalizeSessionUsageAndClear(host, session) {
     /* ignore */
   }
 
-  const { dailyUsageByHost, dailyUsageMinutes, dailyUsageDate } = await chrome.storage.local.get([
+  const { dailyUsageByHost, dailyUsageDate } = await chrome.storage.local.get([
     "dailyUsageByHost",
-    "dailyUsageMinutes",
     "dailyUsageDate",
   ]);
   const today = shared.localDateKey();
@@ -263,7 +262,6 @@ async function finalizeSessionUsageAndClear(host, session) {
     if (curHost <= 0) delete byHost[host];
     else byHost[host] = curHost;
     patch.dailyUsageByHost = byHost;
-    patch.dailyUsageMinutes = Math.max(0, Math.floor(Number(dailyUsageMinutes) || 0) - refund);
   }
   if (Object.keys(patch).length) await chrome.storage.local.set(patch);
 }

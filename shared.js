@@ -23,16 +23,6 @@ function clampSiteBudgetMinutes(n) {
 }
 
 /**
- * Global cap: 60 min Mon–Fri, 120 min Sat–Sun (local time).
- * @param {Date} [now]
- */
-export function effectiveGlobalDailyMax(now = new Date()) {
-  const d = now.getDay();
-  const isWeekend = d === 0 || d === 6;
-  return isWeekend ? 120 : 60;
-}
-
-/**
  * Per-site budget for the given calendar day (local), using weekday vs weekend limits.
  * @param {{ weekdayMinutes: number, weekendMinutes: number }} norm
  * @param {Date} [now]
@@ -147,28 +137,22 @@ export function getManagedSiteRow(hostname, managedSites) {
 /**
  * @param {string} hostname
  * @param {unknown[]} managedSites
- * @param {{ dailyUsageMinutes?: number; dailyUsageByHost?: Record<string, number>; dailyUsageDate?: string }} slice
+ * @param {{ dailyUsageByHost?: Record<string, number>; dailyUsageDate?: string }} slice
  */
 export function getGateLimits(hostname, managedSites, slice) {
   const row = getManagedSiteRow(hostname, managedSites);
   if (!row) return null;
   const today = localDateKey();
   const usageDate = typeof slice.dailyUsageDate === "string" ? slice.dailyUsageDate : today;
-  const globalCap = effectiveGlobalDailyMax();
-  let globalUsed = typeof slice.dailyUsageMinutes === "number" ? slice.dailyUsageMinutes : 0;
   const byHost =
     slice.dailyUsageByHost && typeof slice.dailyUsageByHost === "object" ? slice.dailyUsageByHost : {};
   let siteUsed = 0;
   if (usageDate === today) {
     siteUsed = Math.max(0, Math.floor(Number(byHost[row.hostKey]) || 0));
-  } else {
-    globalUsed = 0;
-    siteUsed = 0;
   }
   const siteCap = siteDailyBudgetMinutes(row);
   const siteLeft = Math.max(0, siteCap - siteUsed);
-  const globalLeft = Math.max(0, globalCap - globalUsed);
-  const maxSingleSession = Math.min(30, siteLeft, globalLeft);
+  const maxSingleSession = Math.min(30, siteLeft);
   return {
     hostKey: row.hostKey,
     /** Today’s per-site budget cap (weekday vs weekend). */
@@ -176,8 +160,6 @@ export function getGateLimits(hostname, managedSites, slice) {
     weekdayMinutes: row.weekdayMinutes,
     weekendMinutes: row.weekendMinutes,
     siteLeft,
-    globalLeft,
-    globalCap,
     maxSingleSession,
   };
 }
@@ -257,7 +239,7 @@ export async function ensureDefaults() {
     "managedSites",
     "managedHosts",
     "alternativeActivities", // legacy; removed below if present
-    "dailyUsageMinutes",
+    "dailyUsageMinutes", // legacy global total; removed below if present
     "dailyUsageDate",
     "dailyUsageByHost",
     "sessionsByHost",
@@ -271,7 +253,6 @@ export async function ensureDefaults() {
   }
 
   if (cur.dailyUsageDate && cur.dailyUsageDate !== today) {
-    patch.dailyUsageMinutes = 0;
     patch.dailyUsageByHost = {};
     patch.dailyUsageDate = today;
   }
@@ -305,13 +286,15 @@ export async function ensureDefaults() {
     if (dirty) patch.managedSites = normalized;
   }
 
-  if (typeof cur.dailyUsageMinutes !== "number") patch.dailyUsageMinutes = 0;
   if (typeof cur.dailyUsageDate !== "string") patch.dailyUsageDate = today;
   if (!cur.sessionsByHost || typeof cur.sessionsByHost !== "object") {
     patch.sessionsByHost = {};
   }
 
   if (Object.keys(patch).length) await chrome.storage.local.set(patch);
+  if ("dailyUsageMinutes" in cur) {
+    await chrome.storage.local.remove("dailyUsageMinutes");
+  }
   if (cur.dailyMaxMinutes !== undefined) {
     await chrome.storage.local.remove("dailyMaxMinutes");
   }

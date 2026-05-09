@@ -111,9 +111,9 @@ async function load() {
       addRow(norm.host, norm.weekdayMinutes, norm.weekendMinutes, left);
     }
   }
-  const cap = shared.effectiveGlobalDailyMax();
-  const isWeekend = cap === 120;
-  capNoteEl.textContent = `Today’s overall cap is ${cap} minutes (${isWeekend ? "weekend" : "weekday"}). Per-site “left today” only counts time on that site; the gate also enforces the overall cap across all sites.`;
+  const d = new Date().getDay();
+  const isWeekend = d === 0 || d === 6;
+  capNoteEl.textContent = `Today uses your ${isWeekend ? "weekend" : "weekday"} budget column for each site. “Left today” is only for that site and resets at local midnight.`;
 }
 
 addSiteBtn.addEventListener("click", () => addRow());
