@@ -17,30 +17,6 @@ When you visit a managed site:
 - **Normal session limit:** up to 30 minutes, and never more than remaining site/global budget.
 - **Early close refund:** if you close all session tabs early, unused planned minutes are returned to your budget.
 
-## AI review mode (optional)
-
-The gate includes an **AI review** checkbox:
-- If unchecked: behaves like normal budgeted sessions (you pick a duration).
-- If checked: the duration picker is ignored. AI validates your written reason.
-  - If approved, you get a fixed **20 minutes** (not deducted from daily budget).
-  - If rejected, you stay on the gate page with feedback.
-
-## Local AI token setup
-
-To use AI review, add your token in:
-
-- `ai-token.local.json`
-
-This file is git-ignored and should not be committed.
-
-Example:
-
-```json
-{
-  "aiBuilderToken": "YOUR_TOKEN_HERE"
-}
-```
-
 ## Install / reload
 
 1. Open `chrome://extensions`
