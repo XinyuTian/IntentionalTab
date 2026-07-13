@@ -2,6 +2,37 @@ import * as shared from "./shared.js";
 
 const BAR_SCRIPT_ID = "intentional-tab-bar";
 
+/** Serialize session mutations so close/focus/reopen races cannot resurrect a session. */
+let sessionMutationChain = Promise.resolve();
+/** @param {() => Promise<T>} fn @returns {Promise<T>} @template T */
+function withSessionLock(fn) {
+  const run = sessionMutationChain.then(fn, fn);
+  sessionMutationChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+/**
+ * @param {number[]} tabIds
+ * @returns {Promise<number[]>}
+ */
+async function filterLiveTabIds(tabIds) {
+  if (!Array.isArray(tabIds) || tabIds.length === 0) return [];
+  const live = [];
+  for (const id of tabIds) {
+    if (!Number.isFinite(id)) continue;
+    try {
+      await chrome.tabs.get(id);
+      live.push(id);
+    } catch {
+      /* tab already closed */
+    }
+  }
+  return live;
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   await shared.ensureDefaults();
   await syncAlarmsFromStorage();
@@ -53,30 +84,44 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     return;
   }
 
-  const { managedSites, sessionsByHost } = await chrome.storage.local.get([
-    "managedSites",
-    "sessionsByHost",
-  ]);
-  const list = Array.isArray(managedSites) ? managedSites : [];
-  const key = shared.managedKeyForHostname(hostname, list);
-  if (!key) return;
+  await withSessionLock(async () => {
+    const { managedSites, sessionsByHost } = await chrome.storage.local.get([
+      "managedSites",
+      "sessionsByHost",
+    ]);
+    const list = Array.isArray(managedSites) ? managedSites : [];
+    const key = shared.managedKeyForHostname(hostname, list);
+    if (!key) return;
 
-  const session = sessionsByHost?.[key];
-  const now = Date.now();
-  if (session && isSessionStillRunning(session, now)) {
-    await attachTabToSession(key, tabId);
-    return;
-  }
+    const session = sessionsByHost?.[key];
+    const now = Date.now();
+    if (session && isSessionStillRunning(session, now)) {
+      const prevIds = Array.isArray(session.tabIds) ? session.tabIds : [];
+      const otherLive = await filterLiveTabIds(prevIds.filter((id) => id !== tabId));
+      const selfStillTracked = prevIds.includes(tabId);
+      // Continue only if another session tab is open, or this is the same tracked tab
+      // navigating/reloading. A brand-new tab after all session tabs closed must re-gate.
+      if (otherLive.length > 0 || selfStillTracked) {
+        await attachTabToSessionUnlocked(key, tabId);
+        return;
+      }
+      await finalizeSessionUsageAndClear(key, session);
+      const next = { ...(sessionsByHost || {}) };
+      delete next[key];
+      await chrome.storage.local.set({ sessionsByHost: next });
+    }
 
-  const gateBase = chrome.runtime.getURL("gate.html");
-  if (url.startsWith(gateBase.split("?")[0])) return;
+    const gateBase = chrome.runtime.getURL("gate.html");
+    if (url.startsWith(gateBase.split("?")[0])) return;
 
-  const gateUrl = `${gateBase}?return=${encodeURIComponent(url)}`;
-  try {
-    await chrome.tabs.update(tabId, { url: gateUrl });
-  } catch (e) {
-    console.warn("IntentionalTab redirect failed", e);
-  }
+    const gateUrl = `${gateBase}?return=${encodeURIComponent(url)}`;
+    try {
+      await chrome.tabs.update(tabId, { url: gateUrl });
+    } catch (e) {
+      console.warn("IntentionalTab redirect failed", e);
+    }
+  });
+  await recomputeAllSessionPauses();
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -86,23 +131,26 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
-  const { sessionsByHost } = await chrome.storage.local.get("sessionsByHost");
-  if (!sessionsByHost || typeof sessionsByHost !== "object") return;
-  const next = { ...sessionsByHost };
-  let changed = false;
-  for (const [h, s] of Object.entries(next)) {
-    const prevIds = Array.isArray(s.tabIds) ? s.tabIds : [];
-    const ids = prevIds.filter((id) => id !== tabId);
-    if (ids.length === prevIds.length) continue;
-    changed = true;
-    if (ids.length === 0) {
-      await finalizeSessionUsageAndClear(h, s);
-      delete next[h];
-    } else {
-      next[h] = { ...s, tabIds: ids };
+  await withSessionLock(async () => {
+    const { sessionsByHost } = await chrome.storage.local.get("sessionsByHost");
+    if (!sessionsByHost || typeof sessionsByHost !== "object") return;
+    const next = { ...sessionsByHost };
+    let changed = false;
+    for (const [h, s] of Object.entries(next)) {
+      const prevIds = Array.isArray(s.tabIds) ? s.tabIds : [];
+      const withoutRemoved = prevIds.filter((id) => id !== tabId);
+      const liveIds = await filterLiveTabIds(withoutRemoved);
+      if (liveIds.length === prevIds.length && !prevIds.includes(tabId)) continue;
+      changed = true;
+      if (liveIds.length === 0) {
+        await finalizeSessionUsageAndClear(h, s);
+        delete next[h];
+      } else {
+        next[h] = { ...s, tabIds: liveIds };
+      }
     }
-  }
-  if (changed) await chrome.storage.local.set({ sessionsByHost: next });
+    if (changed) await chrome.storage.local.set({ sessionsByHost: next });
+  });
   await recomputeAllSessionPauses();
 });
 
@@ -203,21 +251,37 @@ function sessionPauseFieldsChanged(before, after) {
 }
 
 async function recomputeAllSessionPauses() {
-  const { sessionsByHost } = await chrome.storage.local.get("sessionsByHost");
-  if (!sessionsByHost || typeof sessionsByHost !== "object") return;
-  const now = Date.now();
-  const next = { ...sessionsByHost };
-  let changed = false;
-  for (const [host, s] of Object.entries(next)) {
-    if (!s || typeof s !== "object" || !s.endTime) continue;
-    if (!isSessionStillRunning(s, now)) continue;
-    const updated = await stepSessionPauseState(host, s, now);
-    if (sessionPauseFieldsChanged(s, updated)) {
-      next[host] = updated;
-      changed = true;
+  await withSessionLock(async () => {
+    const { sessionsByHost } = await chrome.storage.local.get("sessionsByHost");
+    if (!sessionsByHost || typeof sessionsByHost !== "object") return;
+    const now = Date.now();
+    const next = { ...sessionsByHost };
+    let changed = false;
+    for (const [host, s] of Object.entries(next)) {
+      if (!s || typeof s !== "object" || !s.endTime) continue;
+      const prevIds = Array.isArray(s.tabIds) ? s.tabIds : [];
+      const liveIds = await filterLiveTabIds(prevIds);
+      if (liveIds.length === 0) {
+        await finalizeSessionUsageAndClear(host, s);
+        delete next[host];
+        changed = true;
+        continue;
+      }
+      let current = s;
+      if (liveIds.length !== prevIds.length) {
+        current = { ...s, tabIds: liveIds };
+        next[host] = current;
+        changed = true;
+      }
+      if (!isSessionStillRunning(current, now)) continue;
+      const updated = await stepSessionPauseState(host, current, now);
+      if (sessionPauseFieldsChanged(current, updated)) {
+        next[host] = updated;
+        changed = true;
+      }
     }
-  }
-  if (changed) await chrome.storage.local.set({ sessionsByHost: next });
+    if (changed) await chrome.storage.local.set({ sessionsByHost: next });
+  });
 }
 
 /**
@@ -299,18 +363,25 @@ async function expireSession(host, closeTabs) {
   }
 }
 
-async function attachTabToSession(host, tabId) {
+/** Caller must already hold the session lock. */
+async function attachTabToSessionUnlocked(host, tabId) {
   const { sessionsByHost } = await chrome.storage.local.get("sessionsByHost");
   const session = sessionsByHost?.[host];
   const now = Date.now();
   if (!session || !isSessionStillRunning(session, now)) return;
-  const tabIds = Array.from(new Set([...(session.tabIds || []), tabId]));
+  const prevIds = Array.isArray(session.tabIds) ? session.tabIds : [];
+  const liveIds = await filterLiveTabIds(prevIds);
+  const tabIds = Array.from(new Set([...liveIds, tabId]));
   await chrome.storage.local.set({
     sessionsByHost: {
       ...(sessionsByHost || {}),
       [host]: { ...session, tabIds },
     },
   });
+}
+
+async function attachTabToSession(host, tabId) {
+  await withSessionLock(() => attachTabToSessionUnlocked(host, tabId));
   await recomputeAllSessionPauses();
 }
 

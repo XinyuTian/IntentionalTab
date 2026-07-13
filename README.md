@@ -15,7 +15,7 @@ When you visit a managed site:
   - **Weekday:** 60 minutes
   - **Weekend:** 120 minutes
 - **Normal session limit:** up to 30 minutes, and never more than remaining site/global budget.
-- **Early close refund:** if you close all session tabs early, unused planned minutes are returned to your budget.
+- **Early close refund:** if you close all session tabs/windows for a site early, the session ends and unused planned minutes are returned to your budget. Reopening later requires passing the gate again.
 
 ## Install / reload
 
