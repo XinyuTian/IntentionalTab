@@ -20,10 +20,9 @@ When you visit a managed site:
 ## AI review mode (optional)
 
 The gate includes an **AI review** checkbox:
-- If unchecked: behaves like normal budgeted sessions.
-- If checked: AI validates your written reason.
-  - If approved, you get an **extra 20 minutes** bonus added to the session.
-  - The extra 20 minutes are **not deducted** from daily budget.
+- If unchecked: behaves like normal budgeted sessions (you pick a duration).
+- If checked: the duration picker is ignored. AI validates your written reason.
+  - If approved, you get a fixed **20 minutes** (not deducted from daily budget).
   - If rejected, you stay on the gate page with feedback.
 
 ## Local AI token setup

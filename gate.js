@@ -250,9 +250,12 @@ async function init() {
   quotaLine.textContent = `This site has about ${limits.siteLeft} of ${limits.dailyMinutes} minutes left for today (per your weekday or weekend budget for this site). Each visit can be up to 30 minutes, or less if you’re running low.`;
   let noRegularTimeLeft = false;
   const refreshContinueState = () => {
-    submitBtn.disabled = noRegularTimeLeft && !useAiReviewEl.checked;
+    const aiMode = Boolean(useAiReviewEl.checked);
+    submitBtn.disabled = noRegularTimeLeft && !aiMode;
+    durationEl.disabled = aiMode;
   };
   useAiReviewEl.addEventListener("change", refreshContinueState);
+  refreshContinueState();
 
   if (limits.maxSingleSession < 1 || durationEl.options.length === 0) {
     noRegularTimeLeft = true;
@@ -304,21 +307,8 @@ async function init() {
       return;
     }
 
-    let duration = Number(durationEl.value);
-    if (aiMode && (!Number.isFinite(duration) || duration < 1)) {
-      // AI path can still proceed when regular budgeted minutes are exhausted.
-      duration = 0;
-    }
-    if (!aiMode && (!Number.isFinite(duration) || duration < 1 || duration > lim.maxSingleSession)) {
-      showError(`Pick between 1 and ${lim.maxSingleSession} minute(s) for this visit.`);
-      return;
-    }
-
-    const siteUsed = Math.max(0, Math.floor(Number(byHost[lim.hostKey]) || 0));
-    if (!aiMode && siteUsed + duration > lim.dailyMinutes) {
-      showError("That would go past this site’s daily budget—choose a shorter visit or raise its budget in settings.");
-      return;
-    }
+    // AI review ignores the duration picker and grants a fixed 20 minutes (not from budget).
+    let duration = 0;
     let bonusMinutes = 0;
     if (aiMode) {
       submitBtn.disabled = true;
@@ -339,7 +329,20 @@ async function init() {
         submitBtn.disabled = false;
         submitBtn.textContent = "Continue";
       }
+    } else {
+      duration = Number(durationEl.value);
+      if (!Number.isFinite(duration) || duration < 1 || duration > lim.maxSingleSession) {
+        showError(`Pick between 1 and ${lim.maxSingleSession} minute(s) for this visit.`);
+        return;
+      }
+      const siteUsedCheck = Math.max(0, Math.floor(Number(byHost[lim.hostKey]) || 0));
+      if (siteUsedCheck + duration > lim.dailyMinutes) {
+        showError("That would go past this site’s daily budget—choose a shorter visit or raise its budget in settings.");
+        return;
+      }
     }
+
+    const siteUsed = Math.max(0, Math.floor(Number(byHost[lim.hostKey]) || 0));
 
     const h = lim.hostKey;
     const tab = await chrome.tabs.getCurrent();
