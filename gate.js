@@ -107,6 +107,30 @@ function fillDurationSelect(sessionMax) {
   }
 }
 
+/**
+ * If a session for this host is already running, attach this tab and continue — no new charge.
+ * @param {string} hostKey
+ * @param {string} returnUrl
+ * @returns {Promise<boolean>}
+ */
+async function tryJoinLiveSession(hostKey, returnUrl) {
+  const tab = await chrome.tabs.getCurrent();
+  const tabId = tab?.id ?? null;
+  let res;
+  try {
+    res = await chrome.runtime.sendMessage({
+      type: "joinSessionIfLive",
+      host: hostKey,
+      tabId,
+    });
+  } catch {
+    return false;
+  }
+  if (!res?.ok || !res.joined) return false;
+  window.location.href = returnUrl;
+  return true;
+}
+
 async function init() {
   await shared.ensureDefaults();
   const data = await chrome.storage.local.get(["managedSites", "dailyUsageDate", "dailyUsageByHost"]);
@@ -132,6 +156,14 @@ async function init() {
     form.hidden = true;
     return;
   }
+
+  if (await tryJoinLiveSession(limits.hostKey, safeReturn)) return;
+
+  // Another tab may start a session while this gate stays open — join automatically.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.sessionsByHost) return;
+    tryJoinLiveSession(limits.hostKey, safeReturn).catch(() => {});
+  });
 
   fillDurationSelect(limits.maxSingleSession);
 
@@ -192,6 +224,9 @@ async function init() {
       showError("That site isn’t in your managed list.");
       return;
     }
+
+    // Another tab may have started a session while this gate was open — join, don't double-charge.
+    if (await tryJoinLiveSession(lim.hostKey, validated)) return;
 
     const duration = Number(durationEl.value);
     if (!Number.isFinite(duration) || duration < 1 || duration > lim.maxSingleSession) {
