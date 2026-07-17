@@ -55,6 +55,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true;
   }
+  if (message?.type === "joinSessionIfLive") {
+    joinSessionIfLive(message.host, message.tabId)
+      .then((joined) => sendResponse({ ok: true, joined }))
+      .catch((e) => sendResponse({ ok: false, error: String(e), joined: false }));
+    return true;
+  }
   if (message?.type === "recomputeSessionPause") {
     recomputeAllSessionPauses()
       .then(() => sendResponse({ ok: true }))
@@ -383,6 +389,41 @@ async function attachTabToSessionUnlocked(host, tabId) {
 async function attachTabToSession(host, tabId) {
   await withSessionLock(() => attachTabToSessionUnlocked(host, tabId));
   await recomputeAllSessionPauses();
+}
+
+/**
+ * If this host already has a live session with at least one open tab, attach `tabId`
+ * and return true. Orphaned sessions (no live tabs) are finalized so a new visit can start.
+ * Prevents a second gate submit from overwriting the session and double-charging budget.
+ * @param {string} host
+ * @param {number | null | undefined} tabId
+ * @returns {Promise<boolean>}
+ */
+async function joinSessionIfLive(host, tabId) {
+  const joined = await withSessionLock(async () => {
+    if (typeof host !== "string" || !host) return false;
+    const { sessionsByHost } = await chrome.storage.local.get("sessionsByHost");
+    const session = sessionsByHost?.[host];
+    const now = Date.now();
+    if (!session || !isSessionStillRunning(session, now)) return false;
+
+    const prevIds = Array.isArray(session.tabIds) ? session.tabIds : [];
+    const liveIds = await filterLiveTabIds(prevIds);
+    if (liveIds.length === 0) {
+      await finalizeSessionUsageAndClear(host, session);
+      const next = { ...(sessionsByHost || {}) };
+      delete next[host];
+      await chrome.storage.local.set({ sessionsByHost: next });
+      return false;
+    }
+
+    if (tabId != null && Number.isFinite(tabId)) {
+      await attachTabToSessionUnlocked(host, tabId);
+    }
+    return true;
+  });
+  if (joined) await recomputeAllSessionPauses();
+  return joined;
 }
 
 /** @param {string} host @param {number} endTime */

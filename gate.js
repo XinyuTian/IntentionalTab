@@ -211,6 +211,30 @@ function fillDurationSelect(sessionMax) {
   }
 }
 
+/**
+ * If a session for this host is already running, attach this tab and continue — no new charge.
+ * @param {string} hostKey
+ * @param {string} returnUrl
+ * @returns {Promise<boolean>}
+ */
+async function tryJoinLiveSession(hostKey, returnUrl) {
+  const tab = await chrome.tabs.getCurrent();
+  const tabId = tab?.id ?? null;
+  let res;
+  try {
+    res = await chrome.runtime.sendMessage({
+      type: "joinSessionIfLive",
+      host: hostKey,
+      tabId,
+    });
+  } catch {
+    return false;
+  }
+  if (!res?.ok || !res.joined) return false;
+  window.location.href = returnUrl;
+  return true;
+}
+
 async function init() {
   await shared.ensureDefaults();
   const data = await chrome.storage.local.get(["managedSites", "dailyUsageDate", "dailyUsageByHost"]);
@@ -236,6 +260,14 @@ async function init() {
     form.hidden = true;
     return;
   }
+
+  if (await tryJoinLiveSession(limits.hostKey, safeReturn)) return;
+
+  // Another tab may start a session while this gate stays open — join automatically.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.sessionsByHost) return;
+    tryJoinLiveSession(limits.hostKey, safeReturn).catch(() => {});
+  });
 
   fillDurationSelect(limits.maxSingleSession);
 
@@ -307,6 +339,9 @@ async function init() {
       return;
     }
 
+    // Another tab may have started a session while this gate was open — join, don't double-charge.
+    if (await tryJoinLiveSession(lim.hostKey, validated)) return;
+
     // AI review ignores the duration picker and grants a fixed 20 minutes (not from budget).
     let duration = 0;
     let bonusMinutes = 0;
@@ -341,6 +376,9 @@ async function init() {
         return;
       }
     }
+
+    // Re-check after AI latency: a parallel gate may have started a session.
+    if (await tryJoinLiveSession(lim.hostKey, validated)) return;
 
     const siteUsed = Math.max(0, Math.floor(Number(byHost[lim.hostKey]) || 0));
 
